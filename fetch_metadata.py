@@ -185,6 +185,59 @@ def fetch_omdb(query, media_type, api_key):
         'poster_url': data.get('Poster', '') if data.get('Poster') != 'N/A' else ''
     }
 
+def fetch_tmdb(query, media_type, api_key):
+    if media_type == 'series':
+        search_url = f"https://api.themoviedb.org/3/search/tv?query={urllib.parse.quote(query)}&api_key={api_key}"
+    else:
+        search_url = f"https://api.themoviedb.org/3/search/movie?query={urllib.parse.quote(query)}&api_key={api_key}"
+
+    search_data = get_url_json(search_url)
+    if not search_data or not search_data.get('results'):
+        return None
+
+    first_result = search_data['results'][0]
+    tmdb_id = first_result.get('id')
+    if not tmdb_id:
+        return None
+
+    if media_type == 'series':
+        detail_url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={api_key}"
+    else:
+        detail_url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={api_key}"
+
+    detail_data = get_url_json(detail_url)
+    if not detail_data:
+        detail_data = first_result
+
+    title = detail_data.get('title') or detail_data.get('name') or query
+
+    release_date = detail_data.get('release_date') or detail_data.get('first_air_date') or ''
+    year = release_date.split('-')[0] if release_date else 'N/A'
+
+    genres_list = detail_data.get('genres')
+    if genres_list and isinstance(genres_list, list):
+        genres = ', '.join([g.get('name', '') for g in genres_list if g.get('name')])
+    else:
+        genres = 'N/A'
+
+    rating = detail_data.get('vote_average')
+    rating_str = f"{rating:.1f}" if rating else 'N/A'
+
+    summary = detail_data.get('overview') or 'No synopsis available.'
+
+    poster_path = detail_data.get('poster_path')
+    poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ''
+
+    return {
+        'title': title,
+        'type': 'Movie' if media_type == 'movie' else 'Series',
+        'year': year,
+        'genres': genres,
+        'rating': rating_str,
+        'summary': summary,
+        'poster_url': poster_url
+    }
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: fetch_metadata.py <movie|series> <item_name>")
@@ -211,6 +264,15 @@ def main():
         api_key = os.environ.get("OMDB_API_KEY")
         if api_key:
             metadata = fetch_omdb(title, media_type, api_key)
+        else:
+            print("No OMDB_API_KEY", file=sys.stderr)
+
+        if not metadata:
+            tmdb_key = os.environ.get("TMDB_API_KEY")
+            if tmdb_key:
+                metadata = fetch_tmdb(title, media_type, tmdb_key)
+            else:
+                print("No TMDB_API_KEY", file=sys.stderr)
 
         if not metadata:
             if media_type == 'series':

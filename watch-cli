@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 
 # Export the absolute path of fetch_metadata.py relative to this script
-export CLIENT_PATH="$(dirname "$(realpath "$0")")/fetch_metadata.py"
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+export CLIENT_PATH="${SCRIPT_DIR}/fetch_metadata.py"
+
+# Load API keys from .env if it exists
+ENV_FILE="${SCRIPT_DIR}/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    . "$ENV_FILE"
+    set +a
+fi
 
 # Export whether the parent terminal is Kitty (since fzf overrides TERM in its preview subshells)
 if [ "$TERM" = "xterm-kitty" ]; then
@@ -49,12 +58,12 @@ while true; do
         --delimiter="/" \
         --with-nth=-1 \
         --bind="q:abort" \
-        --preview-window=right:50%,wrap \
+        --preview-window=right:50% \
         --preview='
             ITEM={}
             # Clear any previously drawn Kitty graphics
             printf "\x1b_Ga=d,d=A\x1b\\"
-            
+
             TYPE="movie"
             FILE_PATH=""
             SHOW_LOCAL_INFO=false
@@ -72,7 +81,7 @@ while true; do
                 FILE_PATH="$ITEM"
                 SHOW_LOCAL_INFO=true
             fi
-            
+
             # Extract local metadata if it is a single movie
             LOCAL_TEXT=""
             if [ "$SHOW_LOCAL_INFO" = true ] && [ -n "$FILE_PATH" ]; then
@@ -81,7 +90,7 @@ while true; do
                 CODEC=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$FILE_PATH" 2>/dev/null)
                 LOCAL_TEXT=$(printf "====================================\nFile:     %s\nDuration: %s\nRes:      %s\nCodec:    %s" "$(basename "$FILE_PATH")" "${DURATION%.*}" "$RES" "$CODEC")
             fi
-            
+
             # Fetch internet metadata using Python client
             TEXT_HEADER=""
             POSTER=""
@@ -90,13 +99,13 @@ while true; do
                 TEXT_HEADER=$(echo "$OUT" | grep -v "__POSTER_PATH__")
                 POSTER=$(echo "$OUT" | grep "__POSTER_PATH__" | cut -d":" -f2-)
             fi
-            
+
             # Assemble both sources of metadata
             ALL_TEXT=""
             if [ -n "$TEXT_HEADER" ]; then
                 ALL_TEXT="$TEXT_HEADER"
             fi
-            
+
             if [ "$TYPE" = "movie" ] && [ -n "$LOCAL_TEXT" ]; then
                 if [ -n "$ALL_TEXT" ]; then
                     ALL_TEXT=$(printf "%s\n%s" "$ALL_TEXT" "$LOCAL_TEXT")
@@ -114,26 +123,104 @@ while true; do
                         SERIES_LOCAL_TEXT=$(printf "%s\n..." "$SERIES_LOCAL_TEXT")
                     fi
                 fi
-                
+
                 if [ -n "$ALL_TEXT" ]; then
                     ALL_TEXT=$(printf "%s\n%s" "$ALL_TEXT" "$SERIES_LOCAL_TEXT")
                 else
                     ALL_TEXT="$SERIES_LOCAL_TEXT"
                 fi
             fi
-            
-            # Print the text preview
-            echo "$ALL_TEXT"
-            
-            # Render Kitty graphic poster dynamically under the text
+
+            # Two-column layout: poster on the left, text on the right
             if [ -n "$POSTER" ] && [ "$IS_KITTY" = "true" ]; then
-                LINE_COUNT=$(echo "$ALL_TEXT" | wc -l)
-                START_ROW=$((LINE_COUNT + 2))
+                # Clear previous images from Kitty memory
+                printf "\x1b_Ga=d,d=A\x1b\\\\" > /dev/tty
+
+                IMAGE_HEIGHT=$(( FZF_PREVIEW_LINES - 1 ))
+                [ "$IMAGE_HEIGHT" -lt 5 ] && IMAGE_HEIGHT=5
+
+                # Calculate ideal width based on 2:3 poster aspect ratio and 1:2 terminal cell aspect ratio
+                # Columns = Lines * (2/3) * 2 = Lines * 4/3
+                POSTER_WIDTH=$(( IMAGE_HEIGHT * 4 / 3 ))
                 
-                if [ "$FZF_PREVIEW_LINES" -gt "$START_ROW" ]; then
-                    IMAGE_HEIGHT=$((FZF_PREVIEW_LINES - START_ROW))
-                    kitty +kitten icat --silent --stdin no --transfer-mode file --place "${FZF_PREVIEW_COLUMNS}x${IMAGE_HEIGHT}@0x${START_ROW}" "$POSTER" 2>/dev/null
+                # Cap width to 50% of the preview pane to leave room for text
+                MAX_WIDTH=$(( FZF_PREVIEW_COLUMNS * 50 / 100 ))
+                if [ "$POSTER_WIDTH" -gt "$MAX_WIDTH" ]; then
+                    POSTER_WIDTH=$MAX_WIDTH
+                    # If constrained by width, scale height down perfectly so we do not get vertical padding!
+                    # Lines = Columns * 3/4
+                    IMAGE_HEIGHT=$(( POSTER_WIDTH * 3 / 4 ))
                 fi
+
+                GAP=3
+                TEXT_WIDTH=$(( FZF_PREVIEW_COLUMNS - POSTER_WIDTH - GAP ))
+
+                # Wrap metadata text to fit remaining width
+                ESC=$(printf "\033")
+                TEXT_PLAIN=$(echo "$ALL_TEXT" | sed "s/${ESC}\[[0-9;]*m//g")
+                TEXT_WRAPPED=$(echo "$TEXT_PLAIN" | fold -s -w "$TEXT_WIDTH")
+
+                # Clear previous images from Kitty memory
+                printf "${ESC}_Ga=d,d=A${ESC}\\\\" > /dev/tty
+
+                # Generate Kitty image using Unicode placeholders
+                # We calculate exact fake pixel bounds (10x20 cell) to prevent icat from distorting the aspect ratio!
+                WPX=$(( POSTER_WIDTH * 10 ))
+                HPX=$(( IMAGE_HEIGHT * 20 ))
+                RAW_ART=$(kitty +kitten icat --align left --silent --stdin no --transfer-mode memory --unicode-placeholder --use-window-size "${POSTER_WIDTH},${IMAGE_HEIGHT},${WPX},${HPX}" "$POSTER" 2>/dev/null | tr -d "\\r")
+
+                # Extract the APC sequence and send it directly to the terminal (bypassing fzf)
+                APC_SEQ=$(echo "$RAW_ART" | grep -o "${ESC}_G.*${ESC}\\\\")
+                printf "%s" "$APC_SEQ" > /dev/tty
+
+                # Strip the APC sequence so fzf only sees the unicode placeholders
+                POSTER_ART=$(echo "$RAW_ART" | sed "s/${ESC}_G.*${ESC}\\\\//")
+
+                # Extract the image ID color sequence which Kitty requires to render the image
+                IMG_COLOR=$(echo "$POSTER_ART" | grep -o -m 1 "^${ESC}\\[[0-9;:]*m")
+
+                # Build padding strings
+                GAP_STR=$(printf "%${GAP}s" "")
+                POSTER_PAD=$(printf "%-${POSTER_WIDTH}s" "")
+
+                # Count lines
+                POSTER_N=$(echo "$POSTER_ART" | wc -l)
+                TEXT_N=$(echo "$TEXT_WRAPPED" | wc -l)
+                MAX_N=$POSTER_N
+                [ "$TEXT_N" -gt "$MAX_N" ] && MAX_N=$TEXT_N
+
+                # Merge columns line by line
+                i=1
+                while [ "$i" -le "$MAX_N" ]; do
+                    if [ "$i" -le "$POSTER_N" ]; then
+                        P=$(echo "$POSTER_ART" | sed -n "${i}p")
+                        P="${IMG_COLOR}${P}"
+                        
+                        # Pad P to POSTER_WIDTH so text stays perfectly aligned
+                        P_STRIPPED=$(echo "$P" | sed "s/${ESC}\\[[0-9;:]*m//g")
+                        P_LEN=${#P_STRIPPED}
+                        PAD_LEN=$(( POSTER_WIDTH - P_LEN ))
+                        if [ "$PAD_LEN" -gt 0 ]; then
+                            PAD_SPACES=$(printf "%${PAD_LEN}s" "")
+                            P="${P}${PAD_SPACES}"
+                        fi
+                    else
+                        P="$POSTER_PAD"
+                    fi
+                    
+                    if [ "$i" -le "$TEXT_N" ]; then
+                        T=$(echo "$TEXT_WRAPPED" | sed -n "${i}p")
+                    else
+                        T=""
+                    fi
+                    printf "%s%s\033[97m%s\033[0m\n" "$P" "$GAP_STR" "$T"
+                    i=$((i + 1))
+                done
+            else
+                # Single-column fallback
+                ESC=$(printf "\033")
+                TEXT_PLAIN=$(echo "$ALL_TEXT" | sed "s/${ESC}\[[0-9;]*m//g")
+                echo "$TEXT_PLAIN" | sed "s/^/\033[97m/; s/$/\033[0m/"
             fi
         ')
 
@@ -151,11 +238,11 @@ while true; do
     if [ -d "$SELECTION" ]; then
         # Check if it's really a series (has more than 1 video)
         VIDEO_COUNT=$(find "$SELECTION" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | grep -c .)
-        
+
         if [ "$VIDEO_COUNT" -gt 1 ]; then
             # Check if there are nested season folders
             SEASONS_COUNT=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | grep -c .)
-            
+
             if [ "$SEASONS_COUNT" -gt 0 ]; then
                 # Step 1.5: Season Selection
                 SEASON_PATH=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d | sort | fzf \
@@ -172,12 +259,12 @@ while true; do
                         SERIES_NAME=$(basename "$(dirname "$S_PATH")")
                         FILES=$(find "$S_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort)
                         COUNT=$(echo "$FILES" | grep -c .)
-                        
+
                         printf "SERIES: %s\n" "$SERIES_NAME"
                         printf "SEASON: %s\n" "$(basename "$S_PATH")"
                         printf "====================================\n"
                         printf "Episodes: %s\n" "$COUNT"
-                        
+
                         # Avg Duration calculation
                         TOTAL_SEC=0
                         SAMPLES=0
@@ -191,7 +278,7 @@ while true; do
                         done <<EOF
 $FILES
 EOF
-                        
+
                         if [ $SAMPLES -gt 0 ]; then
                             AVG=$((TOTAL_SEC / SAMPLES))
                             printf "Avg. Ep:  %02d:%02d:%02d\n" $((AVG/3600)) $((AVG%3600/60)) $((AVG%60))
@@ -199,7 +286,7 @@ EOF
                         printf "====================================\n"
                         echo "$FILES" | sed "s|$S_PATH/||" | head -n 15
                     ')
-                
+
                 if [ -z "$SEASON_PATH" ]; then continue; fi
             else
                 # Flat series (no season subdirectories): bypass season selection
@@ -227,7 +314,7 @@ EOF
                     RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null)
                     printf "Res:      %s\n" "$RES"
                 ')
-            
+
             if [ -z "$FULL_PATH" ]; then continue; fi
         else
             # Movie Folder
