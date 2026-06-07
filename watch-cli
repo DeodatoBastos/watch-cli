@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+
+# Export the absolute path of fetch_metadata.py relative to this script
+export CLIENT_PATH="$(dirname "$(realpath "$0")")/fetch_metadata.py"
+
+# Export whether the parent terminal is Kitty (since fzf overrides TERM in its preview subshells)
+if [ "$TERM" = "xterm-kitty" ]; then
+    export IS_KITTY="true"
+else
+    export IS_KITTY="false"
+fi
+
+# 1. Define supported video extensions for find command
+VIDEO_EXTS='\( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \)'
+
+# 2. Define the exact search directories
+SEARCH_DIRS=("$HOME/Media/movies")
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --dir)
+            if [[ -n "$2" ]]; then
+                SEARCH_DIRS=("$(realpath "$2")")
+                shift 2
+            else
+                echo "Error: --dir requires a directory path."
+                exit 1
+            fi
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# Start an infinite loop to make the selection menu iterative
+while true; do
+    clear
+
+    # Step 1: Initial Selection (Movies or Series)
+    SELECTION=$(find "${SEARCH_DIRS[@]}" -maxdepth 1 -mindepth 1 \( -type d -o \( -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) \) \) 2>/dev/null | \
+        fzf \
+        --height=80% \
+        --layout=reverse \
+        --border \
+        --prompt="Select Movie or Series > " \
+        --header="[Enter] Select | [q / Esc] Quit Script" \
+        --delimiter="/" \
+        --with-nth=-1 \
+        --bind="q:abort" \
+        --preview-window=right:50%,wrap \
+        --preview='
+            ITEM={}
+            # Clear any previously drawn Kitty graphics
+            printf "\x1b_Ga=d,d=A\x1b\\"
+            
+            TYPE="movie"
+            FILE_PATH=""
+            SHOW_LOCAL_INFO=false
+            if [ -d "$ITEM" ]; then
+                # Count total videos recursively
+                FILES=$(find "$ITEM" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort)
+                TOTAL_EPS=$(echo "$FILES" | grep -c .)
+                if [ "$TOTAL_EPS" -gt 1 ]; then
+                    TYPE="series"
+                elif [ "$TOTAL_EPS" -eq 1 ]; then
+                    FILE_PATH=$(echo "$FILES" | head -n 1)
+                    SHOW_LOCAL_INFO=true
+                fi
+            else
+                FILE_PATH="$ITEM"
+                SHOW_LOCAL_INFO=true
+            fi
+            
+            # Extract local metadata if it is a single movie
+            LOCAL_TEXT=""
+            if [ "$SHOW_LOCAL_INFO" = true ] && [ -n "$FILE_PATH" ]; then
+                DURATION=$(ffprobe -v error -sexagesimal -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE_PATH" 2>/dev/null)
+                RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null)
+                CODEC=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$FILE_PATH" 2>/dev/null)
+                LOCAL_TEXT=$(printf "====================================\nFile:     %s\nDuration: %s\nRes:      %s\nCodec:    %s" "$(basename "$FILE_PATH")" "${DURATION%.*}" "$RES" "$CODEC")
+            fi
+            
+            # Fetch internet metadata using Python client
+            TEXT_HEADER=""
+            POSTER=""
+            if [ -f "$CLIENT_PATH" ]; then
+                OUT=$(python3 "$CLIENT_PATH" "$TYPE" "$(basename "$ITEM")")
+                TEXT_HEADER=$(echo "$OUT" | grep -v "__POSTER_PATH__")
+                POSTER=$(echo "$OUT" | grep "__POSTER_PATH__" | cut -d":" -f2-)
+            fi
+            
+            # Assemble both sources of metadata
+            ALL_TEXT=""
+            if [ -n "$TEXT_HEADER" ]; then
+                ALL_TEXT="$TEXT_HEADER"
+            fi
+            
+            if [ "$TYPE" = "movie" ] && [ -n "$LOCAL_TEXT" ]; then
+                if [ -n "$ALL_TEXT" ]; then
+                    ALL_TEXT=$(printf "%s\n%s" "$ALL_TEXT" "$LOCAL_TEXT")
+                else
+                    ALL_TEXT="$LOCAL_TEXT"
+                fi
+            elif [ "$TYPE" = "series" ]; then
+                SEASONS=$(find "$ITEM" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | grep -c .)
+                SERIES_LOCAL_TEXT=$(printf "====================================\nLocal Seasons:  %s\nLocal Episodes: %s\n====================================\n" "$SEASONS" "$TOTAL_EPS")
+                if [ "$SEASONS" -gt 0 ]; then
+                    SERIES_LOCAL_TEXT=$(printf "%s\n%s" "$SERIES_LOCAL_TEXT" "$(find "$ITEM" -maxdepth 1 -mindepth 1 -type d | sed "s|$ITEM/||" | sort)")
+                else
+                    SERIES_LOCAL_TEXT=$(printf "%s\n%s" "$SERIES_LOCAL_TEXT" "$(echo "$FILES" | sed "s|$ITEM/||" | head -n 10)")
+                    if [ "$TOTAL_EPS" -gt 10 ]; then
+                        SERIES_LOCAL_TEXT=$(printf "%s\n..." "$SERIES_LOCAL_TEXT")
+                    fi
+                fi
+                
+                if [ -n "$ALL_TEXT" ]; then
+                    ALL_TEXT=$(printf "%s\n%s" "$ALL_TEXT" "$SERIES_LOCAL_TEXT")
+                else
+                    ALL_TEXT="$SERIES_LOCAL_TEXT"
+                fi
+            fi
+            
+            # Print the text preview
+            echo "$ALL_TEXT"
+            
+            # Render Kitty graphic poster dynamically under the text
+            if [ -n "$POSTER" ] && [ "$IS_KITTY" = "true" ]; then
+                LINE_COUNT=$(echo "$ALL_TEXT" | wc -l)
+                START_ROW=$((LINE_COUNT + 2))
+                
+                if [ "$FZF_PREVIEW_LINES" -gt "$START_ROW" ]; then
+                    IMAGE_HEIGHT=$((FZF_PREVIEW_LINES - START_ROW))
+                    kitty +kitten icat --silent --stdin no --transfer-mode file --place "${FZF_PREVIEW_COLUMNS}x${IMAGE_HEIGHT}@0x${START_ROW}" "$POSTER" 2>/dev/null
+                fi
+            fi
+        ')
+
+    # Clear Kitty graphics on exit from main menu
+    printf "\x1b_Ga=d,d=A\x1b\\"
+
+    if [ -z "$SELECTION" ]; then
+        clear
+        echo "Exiting video selector. Goodbye!"
+        break
+    fi
+
+    FULL_PATH=""
+
+    if [ -d "$SELECTION" ]; then
+        # Check if it's really a series (has more than 1 video)
+        VIDEO_COUNT=$(find "$SELECTION" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | grep -c .)
+        
+        if [ "$VIDEO_COUNT" -gt 1 ]; then
+            # Check if there are nested season folders
+            SEASONS_COUNT=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | grep -c .)
+            
+            if [ "$SEASONS_COUNT" -gt 0 ]; then
+                # Step 1.5: Season Selection
+                SEASON_PATH=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d | sort | fzf \
+                    --height=80% \
+                    --layout=reverse \
+                    --border \
+                    --prompt="Select Season > " \
+                    --header="[Enter] Select | [q / Esc] Back" \
+                    --delimiter="/" \
+                    --with-nth=-1 \
+                    --preview-window=right:50%,wrap \
+                    --preview='
+                        S_PATH={}
+                        SERIES_NAME=$(basename "$(dirname "$S_PATH")")
+                        FILES=$(find "$S_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort)
+                        COUNT=$(echo "$FILES" | grep -c .)
+                        
+                        printf "SERIES: %s\n" "$SERIES_NAME"
+                        printf "SEASON: %s\n" "$(basename "$S_PATH")"
+                        printf "====================================\n"
+                        printf "Episodes: %s\n" "$COUNT"
+                        
+                        # Avg Duration calculation
+                        TOTAL_SEC=0
+                        SAMPLES=0
+                        while read -r f; do
+                            [ -z "$f" ] && continue
+                            D=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$f" 2>/dev/null)
+                            [ -z "$D" ] && continue
+                            TOTAL_SEC=$((TOTAL_SEC + ${D%.*}))
+                            SAMPLES=$((SAMPLES + 1))
+                            [ $SAMPLES -ge 3 ] && break
+                        done <<EOF
+$FILES
+EOF
+                        
+                        if [ $SAMPLES -gt 0 ]; then
+                            AVG=$((TOTAL_SEC / SAMPLES))
+                            printf "Avg. Ep:  %02d:%02d:%02d\n" $((AVG/3600)) $((AVG%3600/60)) $((AVG%60))
+                        fi
+                        printf "====================================\n"
+                        echo "$FILES" | sed "s|$S_PATH/||" | head -n 15
+                    ')
+                
+                if [ -z "$SEASON_PATH" ]; then continue; fi
+            else
+                # Flat series (no season subdirectories): bypass season selection
+                SEASON_PATH="$SELECTION"
+            fi
+
+            # Step 1.6: Episode Selection
+            FULL_PATH=$(find "$SEASON_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort | fzf \
+                --height=80% \
+                --layout=reverse \
+                --border \
+                --prompt="Select Episode > " \
+                --header="[Enter] Select | [q / Esc] Back" \
+                --delimiter="/" \
+                --with-nth=-1 \
+                --preview-window=right:50%,wrap \
+                --preview='
+                    FILE_PATH={}
+                    SEASON_NAME=$(basename "$(dirname "$FILE_PATH")")
+                    printf "SEASON:  %s\n" "$SEASON_NAME"
+                    printf "EPISODE: %s\n" "$(basename "$FILE_PATH")"
+                    printf "====================================\n"
+                    DURATION=$(ffprobe -v error -sexagesimal -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE_PATH" 2>/dev/null)
+                    printf "Duration: %s\n" "${DURATION%.*}"
+                    RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null)
+                    printf "Res:      %s\n" "$RES"
+                ')
+            
+            if [ -z "$FULL_PATH" ]; then continue; fi
+        else
+            # Movie Folder
+            FULL_PATH=$(find "$SELECTION" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | head -n 1)
+        fi
+    else
+        # Movie File
+        FULL_PATH="$SELECTION"
+    fi
+
+    [ -z "$FULL_PATH" ] && continue
+    VIDEO_NAME=$(basename "$FULL_PATH")
+    clear
+
+    # Step 2: Select Display Mode
+    DISPLAY_MODE=$(printf "1. Terminal Mode (Kitty)\n2. GUI Mode (Full Screen)\n3. < Go Back" | fzf \
+        --height=40% \
+        --layout=reverse \
+        --border \
+        --prompt="Watch '$VIDEO_NAME' via > " \
+        --header="[Enter] Choose | [q] Cancel")
+
+    case "$DISPLAY_MODE" in
+        *"Terminal"*)
+            clear
+            echo "Launching '$VIDEO_NAME' in terminal (Kitty)..."
+            mpv --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
+            ;;
+        *"GUI"*)
+            clear
+            echo "Launching '$VIDEO_NAME' in full-screen GUI..."
+            mpv --fs "$FULL_PATH" > /dev/null 2>&1
+            ;;
+        *)
+            continue
+            ;;
+    esac
+done
