@@ -43,7 +43,39 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-# Start an infinite loop to make the selection menu iterative
+play_video() {
+    local FULL_PATH="$1"
+    local VIDEO_NAME=$(basename "$FULL_PATH")
+    clear
+
+    # Step 2: Select Display Mode
+    local DISPLAY_MODE=$(printf "1. Terminal Mode (Kitty)\n2. GUI Mode (Full Screen)\n3. < Go Back" | fzf \
+        --height=40% \
+        --layout=reverse \
+        --border \
+        --prompt="Watch '$VIDEO_NAME' via > " \
+        --header="[Enter] Choose | [q] Cancel")
+
+    case "$DISPLAY_MODE" in
+        *"Terminal"*)
+            clear
+            echo "Launching '$VIDEO_NAME' in terminal (Kitty)..."
+            mpv --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
+            return 0
+            ;;
+        *"GUI"*)
+            clear
+            echo "Launching '$VIDEO_NAME' in full-screen GUI..."
+            mpv --fs "$FULL_PATH" > /dev/null 2>&1
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Main selection loop
 while true; do
     clear
 
@@ -242,80 +274,95 @@ while true; do
         if [ "$VIDEO_COUNT" -gt 1 ]; then
             # Check if there are nested season folders
             SEASONS_COUNT=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | grep -c .)
+            SEASON_PATH=""
 
-            if [ "$SEASONS_COUNT" -gt 0 ]; then
-                # Step 1.5: Season Selection
-                SEASON_PATH=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d | sort | fzf \
+            while true; do
+                if [ "$SEASONS_COUNT" -gt 0 ]; then
+                    if [ -z "$SEASON_PATH" ]; then
+                        # Step 1.5: Season Selection
+                        SEASON_PATH=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d | sort | fzf \
+                            --height=80% \
+                            --layout=reverse \
+                            --border \
+                            --prompt="Select Season > " \
+                            --header="[Enter] Select | [q / Esc] Back" \
+                            --delimiter="/" \
+                            --with-nth=-1 \
+                            --preview-window=right:50%,wrap \
+                            --preview='
+                                S_PATH={}
+                                SERIES_NAME=$(basename "$(dirname "$S_PATH")")
+                                FILES=$(find "$S_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort)
+                                COUNT=$(echo "$FILES" | grep -c .)
+
+                                printf "SERIES: %s\n" "$SERIES_NAME"
+                                printf "SEASON: %s\n" "$(basename "$S_PATH")"
+                                printf "====================================\n"
+                                printf "Episodes: %s\n" "$COUNT"
+
+                                # Avg Duration calculation
+                                TOTAL_SEC=0
+                                SAMPLES=0
+                                while read -r f; do
+                                    [ -z "$f" ] && continue
+                                    D=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$f" 2>/dev/null)
+                                    [ -z "$D" ] && continue
+                                    TOTAL_SEC=$((TOTAL_SEC + ${D%.*}))
+                                    SAMPLES=$((SAMPLES + 1))
+                                    [ $SAMPLES -ge 3 ] && break
+                                done <<EOF
+$FILES
+EOF
+
+                                if [ $SAMPLES -gt 0 ]; then
+                                    AVG=$((TOTAL_SEC / SAMPLES))
+                                    printf "Avg. Ep:  %02d:%02d:%02d\n" $((AVG/3600)) $((AVG%3600/60)) $((AVG%60))
+                                fi
+                                printf "====================================\n"
+                                echo "$FILES" | sed "s|$S_PATH/||" | head -n 15
+                            ')
+
+                        if [ -z "$SEASON_PATH" ]; then break; fi
+                    fi
+                else
+                    # Flat series (no season subdirectories): bypass season selection
+                    SEASON_PATH="$SELECTION"
+                fi
+
+                # Step 1.6: Episode Selection
+                FULL_PATH=$(find "$SEASON_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort | fzf \
                     --height=80% \
                     --layout=reverse \
                     --border \
-                    --prompt="Select Season > " \
+                    --prompt="Select Episode > " \
                     --header="[Enter] Select | [q / Esc] Back" \
                     --delimiter="/" \
                     --with-nth=-1 \
                     --preview-window=right:50%,wrap \
                     --preview='
-                        S_PATH={}
-                        SERIES_NAME=$(basename "$(dirname "$S_PATH")")
-                        FILES=$(find "$S_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort)
-                        COUNT=$(echo "$FILES" | grep -c .)
-
-                        printf "SERIES: %s\n" "$SERIES_NAME"
-                        printf "SEASON: %s\n" "$(basename "$S_PATH")"
+                        FILE_PATH={}
+                        SEASON_NAME=$(basename "$(dirname "$FILE_PATH")")
+                        printf "SEASON:  %s\n" "$SEASON_NAME"
+                        printf "EPISODE: %s\n" "$(basename "$FILE_PATH")"
                         printf "====================================\n"
-                        printf "Episodes: %s\n" "$COUNT"
-
-                        # Avg Duration calculation
-                        TOTAL_SEC=0
-                        SAMPLES=0
-                        while read -r f; do
-                            [ -z "$f" ] && continue
-                            D=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$f" 2>/dev/null)
-                            [ -z "$D" ] && continue
-                            TOTAL_SEC=$((TOTAL_SEC + ${D%.*}))
-                            SAMPLES=$((SAMPLES + 1))
-                            [ $SAMPLES -ge 3 ] && break
-                        done <<EOF
-$FILES
-EOF
-
-                        if [ $SAMPLES -gt 0 ]; then
-                            AVG=$((TOTAL_SEC / SAMPLES))
-                            printf "Avg. Ep:  %02d:%02d:%02d\n" $((AVG/3600)) $((AVG%3600/60)) $((AVG%60))
-                        fi
-                        printf "====================================\n"
-                        echo "$FILES" | sed "s|$S_PATH/||" | head -n 15
+                        DURATION=$(ffprobe -v error -sexagesimal -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE_PATH" 2>/dev/null)
+                        printf "Duration: %s\n" "${DURATION%.*}"
+                        RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null)
+                        printf "Res:      %s\n" "$RES"
                     ')
 
-                if [ -z "$SEASON_PATH" ]; then continue; fi
-            else
-                # Flat series (no season subdirectories): bypass season selection
-                SEASON_PATH="$SELECTION"
-            fi
-
-            # Step 1.6: Episode Selection
-            FULL_PATH=$(find "$SEASON_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort | fzf \
-                --height=80% \
-                --layout=reverse \
-                --border \
-                --prompt="Select Episode > " \
-                --header="[Enter] Select | [q / Esc] Back" \
-                --delimiter="/" \
-                --with-nth=-1 \
-                --preview-window=right:50%,wrap \
-                --preview='
-                    FILE_PATH={}
-                    SEASON_NAME=$(basename "$(dirname "$FILE_PATH")")
-                    printf "SEASON:  %s\n" "$SEASON_NAME"
-                    printf "EPISODE: %s\n" "$(basename "$FILE_PATH")"
-                    printf "====================================\n"
-                    DURATION=$(ffprobe -v error -sexagesimal -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE_PATH" 2>/dev/null)
-                    printf "Duration: %s\n" "${DURATION%.*}"
-                    RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null)
-                    printf "Res:      %s\n" "$RES"
-                ')
-
-            if [ -z "$FULL_PATH" ]; then continue; fi
+                if [ -z "$FULL_PATH" ]; then
+                    if [ "$SEASONS_COUNT" -gt 0 ]; then
+                        SEASON_PATH=""
+                        continue
+                    else
+                        break
+                    fi
+                fi
+                
+                play_video "$FULL_PATH"
+            done
+            continue
         else
             # Movie Folder
             FULL_PATH=$(find "$SELECTION" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | head -n 1)
@@ -325,31 +372,5 @@ EOF
         FULL_PATH="$SELECTION"
     fi
 
-    [ -z "$FULL_PATH" ] && continue
-    VIDEO_NAME=$(basename "$FULL_PATH")
-    clear
-
-    # Step 2: Select Display Mode
-    DISPLAY_MODE=$(printf "1. Terminal Mode (Kitty)\n2. GUI Mode (Full Screen)\n3. < Go Back" | fzf \
-        --height=40% \
-        --layout=reverse \
-        --border \
-        --prompt="Watch '$VIDEO_NAME' via > " \
-        --header="[Enter] Choose | [q] Cancel")
-
-    case "$DISPLAY_MODE" in
-        *"Terminal"*)
-            clear
-            echo "Launching '$VIDEO_NAME' in terminal (Kitty)..."
-            mpv --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
-            ;;
-        *"GUI"*)
-            clear
-            echo "Launching '$VIDEO_NAME' in full-screen GUI..."
-            mpv --fs "$FULL_PATH" > /dev/null 2>&1
-            ;;
-        *)
-            continue
-            ;;
-    esac
+    [ -n "$FULL_PATH" ] && play_video "$FULL_PATH"
 done
