@@ -10,7 +10,10 @@ Watch CLI is a beautiful, extremely fast, terminal-based user interface (TUI) fo
 - **Local File Inspection:** Extracts video resolution, codec, and duration using `ffprobe`. Automatically calculates the average episode duration for TV series.
 - **Native High-Res Image Rendering:** Features a custom integration with the Kitty terminal graphics protocol to display full-resolution, correctly scaled movie posters alongside the metadata text.
 - **Character Art Fallback:** For terminals that don't support Kitty graphics, it seamlessly falls back to rendering colored ANSI character art posters using `chafa`.
-- **Smart Playback:** Launches videos directly in Kitty (if supported) or falls back to your preferred full-screen GUI video player.
+- **Smart Playback:** Launches videos directly in Kitty (if supported) or falls back to your preferred full-screen GUI video player. Playback positions are automatically saved, allowing you to instantly resume where you left off.
+- **Watch Tracking:** Background integration with `mpv` automatically detects when you've finished a video (>90% complete) and marks it as watched with a `[✓]` prefix.
+- **Recursive Series Status:** Watch tracking is intelligent—once all episodes in a season are watched, the season itself gets the `[✓]` badge. Finish all seasons, and the entire series gets badged!
+- **Manual Control:** Instantly toggle watched status by pressing `w` on any movie, episode, or even bulk-toggle an entire season directly from the menu.
 
 ## Installation & Requirements
 
@@ -20,31 +23,33 @@ Ensure you have the following dependencies installed on your system:
 - `fzf` (A command-line fuzzy finder)
 - `ffmpeg` / `ffprobe` (For local video metadata extraction)
 - `python3` (For the metadata fetching client)
+- `mpv` (Highly recommended for native watch tracking and playback resume)
 - **Optional but recommended:**
   - [Kitty Terminal](https://sw.kovidgoyal.net/kitty/) (For rendering beautiful high-res posters directly in the terminal)
   - `chafa` (For character art posters on non-Kitty terminals)
 
-Simply clone this repository and ensure the `watch-cli` script is executable:
+### Setup
 
-```bash
-chmod +x watch-cli
-```
+This project uses a `Makefile` to handle installation of the main script and its background helpers.
 
-You can then link it to your `$PATH` for global access:
-```bash
-ln -s /path/to/watch-cli/watch-cli /usr/local/bin/watch-cli
-```
+1. Clone this repository to your machine.
+2. Run `make symlink` (for development) or `make install` to set up the CLI globally.
+   ```bash
+   make install
+   ```
+This will automatically place `watch-cli` in `~/.local/bin` and set up the necessary config files in `~/.config/watch-cli/`. Ensure `~/.local/bin` is in your `$PATH`.
 
 ## How to Use
 
 1. Run the `watch-cli` script from your terminal:
    ```bash
-   ./watch-cli
+   watch-cli
    ```
-2. **Setup Library Path:** On first run, it will ask you for the directory where your media is stored. Simply type the absolute path (e.g., `/home/user/Movies`).
+2. **Setup Library Path:** You can edit the `SEARCH_DIRS` array in the script, or pass a path dynamically using `watch-cli --dir /path/to/movies`.
 3. **Browse:** Use your arrow keys (or type to fuzzy-search) through your collection. The right pane will display detailed information about the selected movie or series, complete with a poster.
-4. **Select:** Press `Enter` to select a movie or delve into a series to pick a specific season and episode.
-5. **Play:** Once a file is selected, press `Enter` to launch the video player.
+4. **Track Progress:** Press `w` to toggle the watched `[✓]` status of the currently highlighted item.
+5. **Select:** Press `Enter` to select a movie or delve into a series to pick a specific season and episode.
+6. **Play:** Once a file is selected, press `Enter` to launch the video player. If you exit early, `watch-cli` will remember your spot for next time!
 
 ## API Keys (Optional)
 
