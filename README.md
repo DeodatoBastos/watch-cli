@@ -33,6 +33,9 @@ Ensure you have the following dependencies installed on your system:
 This project uses a `Makefile` to handle installation of the main script and its background helpers.
 
 1. Clone this repository to your machine.
+   ```bash
+   git clone https://github.com/DeodatoBastos/watch-cli.git
+   ```
 2. Run `make symlink` (for development) or `make install` to set up the CLI globally.
    ```bash
    make install
