@@ -43,6 +43,16 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+WATCHED_DIR="${HOME}/.config/watch-cli"
+WATCHED_FILE="${WATCHED_DIR}/watched.txt"
+LUA_SCRIPT="${WATCHED_DIR}/mark_watched.lua"
+MARKER_SCRIPT="${WATCHED_DIR}/marker.py"
+TOGGLE_SCRIPT="${WATCHED_DIR}/toggle_watched.sh"
+
+mkdir -p "$WATCHED_DIR"
+touch "$WATCHED_FILE"
+chmod +x "$TOGGLE_SCRIPT" 2>/dev/null
+
 play_video() {
     local FULL_PATH="$1"
     local VIDEO_NAME=$(basename "$FULL_PATH")
@@ -60,13 +70,13 @@ play_video() {
         *"Terminal"*)
             clear
             echo "Launching '$VIDEO_NAME' in terminal (Kitty)..."
-            mpv --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
+            mpv --script="$LUA_SCRIPT" --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
             return 0
             ;;
         *"GUI"*)
             clear
             echo "Launching '$VIDEO_NAME' in full-screen GUI..."
-            mpv --fs "$FULL_PATH" > /dev/null 2>&1
+            mpv --script="$LUA_SCRIPT" --fs "$FULL_PATH" > /dev/null 2>&1
             return 0
             ;;
         *)
@@ -79,20 +89,26 @@ play_video() {
 while true; do
     clear
 
+    # Build the reload command for fzf (must be exported for fzf subshells)
+    export WATCHED_FILE MARKER_SCRIPT TOGGLE_SCRIPT
+    MAIN_FIND_CMD="find $(printf '%q ' "${SEARCH_DIRS[@]}") -maxdepth 1 -mindepth 1 \( -type d -o \( -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.flv' -o -iname '*.webm' \) \) \) 2>/dev/null"
+    export MAIN_RELOAD_CMD="$MAIN_FIND_CMD | python3 $MARKER_SCRIPT $WATCHED_FILE"
+
     # Step 1: Initial Selection (Movies or Series)
-    SELECTION=$(find "${SEARCH_DIRS[@]}" -maxdepth 1 -mindepth 1 \( -type d -o \( -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) \) \) 2>/dev/null | \
+    SELECTION=$(eval "$MAIN_RELOAD_CMD" | \
         fzf \
         --height=80% \
         --layout=reverse \
         --border \
         --prompt="Select Movie or Series > " \
-        --header="[Enter] Select | [q / Esc] Quit Script" \
-        --delimiter="/" \
-        --with-nth=-1 \
+        --header="[Enter] Select | [q / Esc] Quit | [w] Toggle Watched" \
+        --delimiter=$'\t' \
+        --with-nth=2 \
         --bind="q:abort" \
+        --bind="w:execute-silent(bash $TOGGLE_SCRIPT $WATCHED_FILE {1})+reload($MAIN_RELOAD_CMD)" \
         --preview-window=right:50% \
         --preview='
-            ITEM={}
+            ITEM={1}
             # Clear any previously drawn Kitty graphics
             printf "\x1b_Ga=d,d=A\x1b\\"
 
@@ -174,7 +190,7 @@ while true; do
                 # Calculate ideal width based on 2:3 poster aspect ratio and 1:2 terminal cell aspect ratio
                 # Columns = Lines * (2/3) * 2 = Lines * 4/3
                 POSTER_WIDTH=$(( IMAGE_HEIGHT * 4 / 3 ))
-                
+
                 # Cap width to 50% of the preview pane to leave room for text
                 MAX_WIDTH=$(( FZF_PREVIEW_COLUMNS * 50 / 100 ))
                 if [ "$POSTER_WIDTH" -gt "$MAX_WIDTH" ]; then
@@ -227,7 +243,7 @@ while true; do
                     if [ "$i" -le "$POSTER_N" ]; then
                         P=$(echo "$POSTER_ART" | sed -n "${i}p")
                         P="${IMG_COLOR}${P}"
-                        
+
                         # Pad P to POSTER_WIDTH so text stays perfectly aligned
                         P_STRIPPED=$(echo "$P" | sed "s/${ESC}\\[[0-9;:]*m//g")
                         P_LEN=${#P_STRIPPED}
@@ -239,7 +255,7 @@ while true; do
                     else
                         P="$POSTER_PAD"
                     fi
-                    
+
                     if [ "$i" -le "$TEXT_N" ]; then
                         T=$(echo "$TEXT_WRAPPED" | sed -n "${i}p")
                     else
@@ -258,6 +274,9 @@ while true; do
 
     # Clear Kitty graphics on exit from main menu
     printf "\x1b_Ga=d,d=A\x1b\\"
+
+    # Extract clean path (first tab-delimited field) from fzf output
+    SELECTION=$(echo "$SELECTION" | cut -f1)
 
     if [ -z "$SELECTION" ]; then
         clear
@@ -280,17 +299,19 @@ while true; do
                 if [ "$SEASONS_COUNT" -gt 0 ]; then
                     if [ -z "$SEASON_PATH" ]; then
                         # Step 1.5: Season Selection
-                        SEASON_PATH=$(find "$SELECTION" -maxdepth 1 -mindepth 1 -type d | sort | fzf \
+                        export SEASON_RELOAD_CMD="find '$SELECTION' -maxdepth 1 -mindepth 1 -type d | sort | python3 $MARKER_SCRIPT $WATCHED_FILE"
+                        SEASON_PATH=$(eval "$SEASON_RELOAD_CMD" | fzf \
                             --height=80% \
                             --layout=reverse \
                             --border \
                             --prompt="Select Season > " \
-                            --header="[Enter] Select | [q / Esc] Back" \
-                            --delimiter="/" \
-                            --with-nth=-1 \
+                            --header="[Enter] Select | [q / Esc] Back | [w] Toggle Watched" \
+                            --delimiter=$'\t' \
+                            --with-nth=2 \
+                            --bind="w:execute-silent(bash $TOGGLE_SCRIPT $WATCHED_FILE {1})+reload($SEASON_RELOAD_CMD)" \
                             --preview-window=right:50%,wrap \
                             --preview='
-                                S_PATH={}
+                                S_PATH={1}
                                 SERIES_NAME=$(basename "$(dirname "$S_PATH")")
                                 FILES=$(find "$S_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort)
                                 COUNT=$(echo "$FILES" | grep -c .)
@@ -322,6 +343,7 @@ EOF
                                 echo "$FILES" | sed "s|$S_PATH/||" | head -n 15
                             ')
 
+                        SEASON_PATH=$(echo "$SEASON_PATH" | cut -f1)
                         if [ -z "$SEASON_PATH" ]; then break; fi
                     fi
                 else
@@ -330,17 +352,19 @@ EOF
                 fi
 
                 # Step 1.6: Episode Selection
-                FULL_PATH=$(find "$SEASON_PATH" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.flv" -o -iname "*.webm" \) 2>/dev/null | sort | fzf \
+                export EPISODE_RELOAD_CMD="find '$SEASON_PATH' -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.flv' -o -iname '*.webm' \) 2>/dev/null | sort | python3 $MARKER_SCRIPT $WATCHED_FILE"
+                FULL_PATH=$(eval "$EPISODE_RELOAD_CMD" | fzf \
                     --height=80% \
                     --layout=reverse \
                     --border \
                     --prompt="Select Episode > " \
-                    --header="[Enter] Select | [q / Esc] Back" \
-                    --delimiter="/" \
-                    --with-nth=-1 \
+                    --header="[Enter] Select | [q / Esc] Back | [w] Toggle Watched" \
+                    --delimiter=$'\t' \
+                    --with-nth=2 \
+                    --bind="w:execute-silent(bash $TOGGLE_SCRIPT $WATCHED_FILE {1})+reload($EPISODE_RELOAD_CMD)" \
                     --preview-window=right:50%,wrap \
                     --preview='
-                        FILE_PATH={}
+                        FILE_PATH={1}
                         SEASON_NAME=$(basename "$(dirname "$FILE_PATH")")
                         printf "SEASON:  %s\n" "$SEASON_NAME"
                         printf "EPISODE: %s\n" "$(basename "$FILE_PATH")"
@@ -351,6 +375,7 @@ EOF
                         printf "Res:      %s\n" "$RES"
                     ')
 
+                FULL_PATH=$(echo "$FULL_PATH" | cut -f1)
                 if [ -z "$FULL_PATH" ]; then
                     if [ "$SEASONS_COUNT" -gt 0 ]; then
                         SEASON_PATH=""
@@ -359,7 +384,7 @@ EOF
                         break
                     fi
                 fi
-                
+
                 play_video "$FULL_PATH"
             done
             continue
