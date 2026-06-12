@@ -70,13 +70,13 @@ play_video() {
         *"Terminal"*)
             clear
             echo "Launching '$VIDEO_NAME' in terminal (Kitty)..."
-            mpv --script="$LUA_SCRIPT" --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
+            mpv --script="$LUA_SCRIPT" --save-position-on-quit --profile=sw-fast --vo=kitty --vo-kitty-use-shm=yes --really-quiet "$FULL_PATH" 2>/dev/null
             return 0
             ;;
         *"GUI"*)
             clear
             echo "Launching '$VIDEO_NAME' in full-screen GUI..."
-            mpv --script="$LUA_SCRIPT" --fs "$FULL_PATH" > /dev/null 2>&1
+            mpv --script="$LUA_SCRIPT" --save-position-on-quit --fs "$FULL_PATH" > /dev/null 2>&1
             return 0
             ;;
         *)
