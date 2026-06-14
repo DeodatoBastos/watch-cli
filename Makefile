@@ -6,13 +6,17 @@ CONFIG_DIR ?= $(HOME)/.config/watch-cli
 HELPERS = marker.py toggle_watched.py mark_watched.lua \
           preview.sh preview_season.sh preview_episode.sh
 
-.PHONY: all install symlink uninstall
+.PHONY: all install symlink uninstall test
 
 all:
 	@echo "Available targets:"
 	@echo "  make install   - Copies scripts to $(BIN_DIR)/ and helpers to $(CONFIG_DIR)/"
 	@echo "  make symlink   - Creates symbolic links (good for development)"
 	@echo "  make uninstall - Removes installed scripts and helpers"
+	@echo "  make test      - Runs the unit tests"
+
+test:
+	@python3 test/test_watched.py
 
 install:
 	mkdir -p $(BIN_DIR) $(CONFIG_DIR)
