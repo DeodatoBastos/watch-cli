@@ -6,14 +6,19 @@ where LABEL is "[✓] basename" or "[ ] basename".
 
 fzf should use --delimiter='\\t' --with-nth=2 to show labels,
 and {1} to get the clean path.
+
+Usage: find /media -type f | python3 marker.py /path/to/watched.txt
 """
-import sys, os
+import sys
+import os
 
-VALID_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm"}
+# Derive valid extensions from VIDEO_EXTS env var (set by watch-cli entrypoint)
+_raw = os.environ.get("VIDEO_EXTS", "mp4|mkv|avi|mov|flv|webm")
+VALID_EXTS = set("." + e for e in _raw.split("|"))
 
 
-def is_dir_watched(path, watched):
-    """Check if all video files under a directory are watched."""
+def is_dir_watched(path: str, watched: set[str]) -> bool:
+    """Return True if every video file under path is in the watched set."""
     has_videos = False
     for root, _, files in os.walk(path):
         for f in files:
@@ -26,7 +31,7 @@ def is_dir_watched(path, watched):
 
 if __name__ == "__main__":
     watched_file = sys.argv[1]
-    watched = set()
+    watched: set[str] = set()
     if os.path.exists(watched_file):
         with open(watched_file) as f:
             watched = set(line.strip() for line in f if line.strip())
@@ -43,5 +48,4 @@ if __name__ == "__main__":
 
         prefix = "\u2713" if is_watched else " "
         basename = os.path.basename(path)
-        # Output: PATH\tLABEL
         print(f"{path}\t[{prefix}] {basename}")
