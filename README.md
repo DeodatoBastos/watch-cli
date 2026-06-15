@@ -1,6 +1,31 @@
 # Watch CLI
 
+> **Disclaimer**: This repository was 100% *vibe coded* by an AI agent. It works beautifully, but proceed with good vibes only! ✨
+
 Watch CLI is a beautiful, extremely fast, terminal-based user interface (TUI) for browsing and watching your local video library. It automatically organizes your movies and TV shows, fetches rich metadata and posters from the internet, and lets you play your media seamlessly—all without ever leaving your terminal.
+
+## Table of Contents
+
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Installation & Requirements](#installation--requirements)
+  - [Installation](#installation)
+- [How to Use](#how-to-use)
+- [API Keys (Optional)](#api-keys-optional)
+- [Credits & Attributions](#credits--attributions)
+
+## Screenshots
+
+| Browsing Movies | Browsing TV Series |
+| :---: | :---: |
+| <img src="images/main_menu_movie.png" alt="Main Menu Movie"> | <img src="images/main_menu_series.png" alt="Main Menu Series"> |
+| *The main interface selecting a standalone movie. Displays the fetched poster, synopsis, rating, and local file metadata (duration, resolution, codec).* | *The main interface selecting a TV show. Automatically detects it as a series and aggregates local seasons and total episodes.* |
+| **Season Selection** | **Episode Selection** |
+| <img src="images/season_selection.png" alt="Season Selection"> | <img src="images/episode_selection.png" alt="Episode Selection"> |
+| *Drilling down into a series folder. Displays average episode duration and a preview of the files inside the season.* | *Selecting a specific episode. Shows individual episode duration and resolution.* |
+| **Display Mode** | **Kitty Terminal Playback** |
+| <img src="images/display_mode.png" alt="Display Mode"> | <img src="images/playback_kitty.png" alt="Playback"> |
+| *Prompt to launch the video in either a full-screen GUI player or directly inside the terminal.* | *Native, high-performance video playback directly inside the Kitty terminal.* |
 
 ## Features
 
@@ -28,7 +53,17 @@ Ensure you have the following dependencies installed on your system:
   - [Kitty Terminal](https://sw.kovidgoyal.net/kitty/) (For rendering beautiful high-res posters directly in the terminal)
   - `chafa` (For character art posters on non-Kitty terminals)
 
-### Setup
+### Installation
+
+**Quick Install (Recommended)**
+
+You can install Watch CLI instantly via curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeodatoBastos/watch-cli/main/install.sh | bash
+```
+
+**Manual Install**
 
 This project uses a `Makefile` to handle installation of the main script and its background helpers.
 
