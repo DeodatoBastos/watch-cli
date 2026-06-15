@@ -20,10 +20,10 @@ test:
 
 install:
 	mkdir -p $(BIN_DIR) $(CONFIG_DIR)
-	cp watch-cli $(BIN_DIR)/watch-cli
-	cp fetch_metadata.py $(BIN_DIR)/fetch_metadata.py
+	cp src/watch-cli $(BIN_DIR)/watch-cli
+	cp src/fetch_metadata.py $(BIN_DIR)/fetch_metadata.py
 	chmod +x $(BIN_DIR)/watch-cli $(BIN_DIR)/fetch_metadata.py
-	cp $(HELPERS) $(CONFIG_DIR)/
+	@for f in $(HELPERS); do cp src/$$f $(CONFIG_DIR)/$$f; done
 	chmod +x $(CONFIG_DIR)/preview.sh $(CONFIG_DIR)/preview_season.sh $(CONFIG_DIR)/preview_episode.sh
 	touch $(CONFIG_DIR)/watched.txt
 	@echo "Installed successfully."
@@ -32,14 +32,14 @@ install:
 
 symlink:
 	mkdir -p $(BIN_DIR) $(CONFIG_DIR)
-	chmod +x watch-cli fetch_metadata.py preview.sh preview_season.sh preview_episode.sh
-	ln -sf $(CURDIR)/watch-cli $(BIN_DIR)/watch-cli
-	ln -sf $(CURDIR)/fetch_metadata.py $(BIN_DIR)/fetch_metadata.py
-	@for f in $(HELPERS); do ln -sf $(CURDIR)/$$f $(CONFIG_DIR)/$$f; done
+	chmod +x src/watch-cli src/fetch_metadata.py src/preview.sh src/preview_season.sh src/preview_episode.sh
+	ln -sf $(CURDIR)/src/watch-cli $(BIN_DIR)/watch-cli
+	ln -sf $(CURDIR)/src/fetch_metadata.py $(BIN_DIR)/fetch_metadata.py
+	@for f in $(HELPERS); do ln -sf $(CURDIR)/src/$$f $(CONFIG_DIR)/$$f; done
 	touch $(CONFIG_DIR)/watched.txt
 	@echo "Created symbolic links."
-	@echo "  Scripts: $(BIN_DIR)/ -> $(CURDIR)"
-	@echo "  Helpers: $(CONFIG_DIR)/ -> $(CURDIR)"
+	@echo "  Scripts: $(BIN_DIR)/ -> $(CURDIR)/src"
+	@echo "  Helpers: $(CONFIG_DIR)/ -> $(CURDIR)/src"
 
 uninstall:
 	rm -f $(BIN_DIR)/watch-cli $(BIN_DIR)/fetch_metadata.py

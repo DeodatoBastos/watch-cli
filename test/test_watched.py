@@ -5,9 +5,9 @@ import os
 import subprocess
 from pathlib import Path
 
-# Add the parent directory to sys.path to import the modules
+# Add the parent/src directory to sys.path to import the modules
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from toggle_watched import toggle_file, toggle_directory, load_watched, save_watched, VALID_EXTS as TOGGLE_VALID_EXTS
 from marker import is_dir_watched, VALID_EXTS as MARKER_VALID_EXTS
@@ -126,7 +126,7 @@ class TestWatchedSystem(unittest.TestCase):
             f.write(str(self.s1e2) + "\n")
 
         # Call marker.py via subprocess to test its stdin/stdout behavior
-        marker_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "marker.py")
+        marker_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "marker.py")
 
         input_data = f"{self.movie1}\n{self.s1_path}\n{self.s2_path}\n{self.series_path}\n"
 
