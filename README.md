@@ -27,6 +27,8 @@ Watch CLI is a beautiful, extremely fast, terminal-based user interface (TUI) fo
 | <img src="images/display_mode.png" alt="Display Mode"> | <img src="images/playback_kitty.png" alt="Playback"> |
 | *Prompt to launch the video in either a full-screen GUI player or directly inside the terminal.* | *Native, high-performance video playback directly inside the Kitty terminal.* |
 
+> **Note**: All images, posters, and movie/series titles shown in the screenshots above are purely illustrative to demonstrate the TUI's features. They do not imply the hosting, distribution, or piracy of any copyrighted media.
+
 ## Features
 
 - **Blazing Fast TUI:** Powered by `fzf`, the interface is incredibly responsive, allowing you to instantly search through hundreds of video files.
