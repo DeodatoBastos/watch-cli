@@ -4,7 +4,7 @@ CONFIG_DIR ?= $(HOME)/.config/watch-cli
 
 # Helper files installed to CONFIG_DIR
 HELPERS = marker.py toggle_watched.py mark_watched.lua \
-          preview.sh preview_season.sh preview_episode.sh
+          preview.sh preview_season.sh preview_episode.sh render_poster.sh
 
 .PHONY: all install symlink uninstall test
 

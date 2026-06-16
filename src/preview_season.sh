@@ -8,10 +8,8 @@ SERIES_NAME=$(basename "$(dirname "$S_PATH")")
 FILES=$(find "$S_PATH" -type f 2>/dev/null | grep -iE "\.(${VIDEO_EXTS})$" | sort)
 COUNT=$(echo "$FILES" | grep -c .)
 
-printf "SERIES: %s\n" "$SERIES_NAME"
-printf "SEASON: %s\n" "$(basename "$S_PATH")"
-printf "====================================\n"
-printf "Episodes: %s\n" "$COUNT"
+ALL_TEXT=$(printf "SERIES: %s\n" "$SERIES_NAME")
+ALL_TEXT=$(printf "%s\nSEASON: %s\n====================================\nEpisodes: %s" "$ALL_TEXT" "$(basename "$S_PATH")" "$COUNT")
 
 # Avg duration from first 10 episodes
 TOTAL_SEC=0
@@ -29,7 +27,16 @@ EOF
 
 if [ $SAMPLES -gt 0 ]; then
     AVG=$((TOTAL_SEC / SAMPLES))
-    printf "Avg. Ep:  %02d:%02d:%02d\n" $((AVG/3600)) $((AVG%3600/60)) $((AVG%60))
+    ALL_TEXT=$(printf "%s\nAvg. Ep:  %02d:%02d:%02d" "$ALL_TEXT" $((AVG/3600)) $((AVG%3600/60)) $((AVG%60)))
 fi
-printf "====================================\n"
-echo "$FILES" | sed "s|$S_PATH/||" | head -n 15
+ALL_TEXT=$(printf "%s\n====================================\n%s" "$ALL_TEXT" "$(echo "$FILES" | sed "s|$S_PATH/||" | head -n 15)")
+
+# Fetch internet metadata to get poster
+POSTER=""
+if [ -n "$CLIENT_PATH" ] && [ -f "$CLIENT_PATH" ]; then
+    OUT=$(python3 "$CLIENT_PATH" "series" "$SERIES_NAME")
+    POSTER=$(echo "$OUT" | grep "__POSTER_PATH__" | cut -d":" -f2-)
+fi
+
+# Render poster and text
+source "$(dirname "$0")/render_poster.sh"
